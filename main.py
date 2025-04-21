@@ -47,16 +47,23 @@ validation_data = data[:splitter]
 # we do not train the LLM with a whole train_data, but with the chunks of it
 print ('--- Chunks (example for 1 batch of data with chunk size 4) ---')
 chunk_size = 4
+
 context_set = training_data[:chunk_size]
+print(f'context: {context_set.shape}')
+print(context_set)
+
 prediction_set = training_data[1: chunk_size+1]
+print(f'prediction: {prediction_set.shape}')
+print(prediction_set)
+
 for position in range(chunk_size):
     context = context_set[:position+1]
     prediction = prediction_set[position]
-    print(f'When context is {context} the prediction: {prediction}')
+    print(f'When context is {context.tolist()} the prediction: {prediction}')
 
 
 
-print ('--- Chunks (for 4 batches of data with chunk size 10)---')
+print ('--- Chunks (for 4 batches of data with chunk size 10) ---')
 torch.manual_seed(1337)
 chunk_size = 10     # max context lengh for the prediction
 batch_size = 4      # how many independent chunks will be processed in parallel
@@ -87,4 +94,4 @@ for batch in range(batch_size):
     for position in range(chunk_size):
         context = training_contexts[batch, :position+1]
         prediction = training_predictions[batch, position]
-        print(f'batch {batch}: when context is {context.tolist()} the prediction: {prediction}')
+        print(f'When context is {context.tolist()} the prediction: {prediction}')
