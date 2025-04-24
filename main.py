@@ -1,4 +1,7 @@
 import torch
+import torch.nn as nn
+import torch.nn.functional as F
+
 
 # read dataset
 with open('dataset.txt', 'r', encoding='utf-8') as file:
@@ -29,7 +32,7 @@ for i,ch in enumerate(chars):
 encode = lambda string: [string_to_i[char] for char in string]     # encode string to a list of integers
 decode = lambda list: ''.join([i_to_string[i] for i in list])      # decode list of integers to string
 
-print(decode(encode('Test')), ' --> ', encode('Test'),)
+print(decode(encode('Лев Толстой')), ' --> ', encode('Лев Толстой'),)
 
 
 # Put dataset in torch
@@ -95,3 +98,82 @@ for batch in range(batch_size):
         context = training_contexts[batch, :position+1]
         prediction = training_predictions[batch, position]
         print(f'When context is {context.tolist()} the prediction: {prediction}')
+
+
+
+# Enable Bigram LLM
+torch.manual_seed(1337)
+
+class BigramLLM(nn.Module):
+    def __init__(self, vocab_size) -> None:
+        super().__init__()
+        # each token directly reads off the logits for the next token from a lookup table
+        self.token_embedding_table = nn.Embedding(vocab_size, vocab_size)
+
+    def forward(self, idx, predictions=None):
+        # idx and predictions are both (Batch,Time) tensor of integers
+        llm_predictions = self.token_embedding_table(idx)    # (Batch,Time,Channel)
+        if predictions is None:
+            loss = None
+        else:
+            Batch, Time, Channel = llm_predictions.shape
+            llm_predictions = llm_predictions.view(Batch*Time, Channel)
+            predictions = predictions.view(Batch*Time)
+            loss = F.cross_entropy(llm_predictions, predictions)
+        return llm_predictions, loss
+
+    def generate(self, idx, max_new_tokens):
+        # idx is is (Batch,Time) array of indices in the current context
+        for _ in range(max_new_tokens):
+            # get predictions
+            llm_predictions, loss = self(idx)
+            # focus only on the last timestamp
+            llm_predictions = llm_predictions[:, -1, :]     # becomes (Batch,Channel)
+            # apply softmax to get probabilities
+            probs = F.softmax(llm_predictions, dim=-1)      # (Batch,Channel)
+            # sample from the distribution
+            idx_next = torch.multinomial(probs, num_samples=1)  # (Batch, 1)
+            # append sample index to the running sequence
+            idx = torch.cat((idx, idx_next), dim=1)         # (Batch,Time+1)
+        return idx
+
+
+llm = BigramLLM(vocab_size)
+llm_predictions, loss = llm(training_contexts, training_predictions)
+print(llm_predictions.shape)
+print(loss)
+
+print('--- Work with BigramLLM (500 tokens, 1 optimization run) ---')
+print(decode(
+        llm.generate(
+            idx = torch.zeros((1,1), dtype=torch.long),
+            max_new_tokens=500
+            )[0].tolist()
+        )
+    )
+
+
+# create a PyTorch optimizer
+print('--- optimize the loss ---')
+print('--- Work with BigramLLM (500 tokens, 10.000 optimization runs) ---')
+optimizer = torch.optim.AdamW(llm.parameters(), lr=0.001)
+
+batch_size = 32
+for steps in range(10000):
+    # sample a batch of data
+    training_contexts, training_predictions = get_batches('train')
+    # evaluate the loss
+    llm_predictions, loss = llm(training_contexts, training_predictions)
+    optimizer.zero_grad(set_to_none=True)
+    loss.backward()
+    optimizer.step
+
+
+print(loss.item())
+print(decode(
+        llm.generate(
+            idx = torch.zeros((1,1), dtype=torch.long),
+            max_new_tokens=500
+            )[0].tolist()
+        )
+    )
