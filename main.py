@@ -3,116 +3,87 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 
+
+# params
+batch_size = 32     # how many independent sequences would we process in parallel
+block_size = 8      # maximum content length for prediction
+max_iters = 3000
+eval_interval = 300
+learning_rate = 0.01
+device = 'cuda' if torch.cuda.is_available() else 'cpu'
+eval_iters = 200
+# ---
+
+
+
+torch.manual_seed(1337)
+
+
+
 # read dataset
 with open('dataset.txt', 'r', encoding='utf-8') as file:
     dataset = file.read()
 
-print('Dataset length is ', len(dataset), ' characters')
-# print('First 50 characters: ', dataset[:50])
 
 
-# all unique characters in the dataset
+# here is all unique characters that occurs in dataset
 chars = sorted(list(set(dataset)))
 vocab_size = len(chars)
 print('All possible characters in the dataset: ', ''.join(chars))
 print('Vocabulary size is ', vocab_size, ' characters')
 
 
+
 # create a mapping from characters to integers (tokenizer)
 # https://github.com/openai/tiktoken.git
 print('--- Tokenizer ---')
-string_to_i = {}
+string_to_tokens = {}
 for i, ch in enumerate(chars):
-    string_to_i[ch] = i
+    string_to_tokens[ch] = i
 
-i_to_string = {}
+tokens_to_string = {}
 for i,ch in enumerate(chars):
-    i_to_string[i] = ch
+    tokens_to_string[i] = ch
 
-encode = lambda string: [string_to_i[char] for char in string]     # encode string to a list of integers
-decode = lambda list: ''.join([i_to_string[i] for i in list])      # decode list of integers to string
+encode = lambda string: [string_to_tokens[c] for c in string]           # encode string to a list of integers
+decode = lambda list: ''.join([tokens_to_string[i] for i in list])      # decode list of integers to string
 
-print(decode(encode('Лев Толстой')), ' --> ', encode('Лев Толстой'),)
+print(decode(encode('Лев Толстой')), ' --> ', encode('Лев Толстой'))
 
-
-# Put dataset in torch
-data = torch.tensor(data=encode(dataset), dtype=torch.long)
-print(data.shape, data.type)
-print(dataset[:5], ' --> ', data[:5])   # encode first 5 characters of dataset
 
 
 # Split 90% of dataset as training data, and last 10% as validation data
+data = torch.tensor(encode(dataset), dtype=torch.long)
 splitter = int(0.9*len(data))
 training_data = data[:splitter]
 validation_data = data[:splitter]
 
 
-# we do not train the LLM with a whole train_data, but with the chunks of it
-print ('--- Chunks (example for 1 batch of data with chunk size 4) ---')
-chunk_size = 4
 
-context_set = training_data[:chunk_size]
-print(f'context: {context_set.shape}')
-print(context_set)
-
-prediction_set = training_data[1: chunk_size+1]
-print(f'prediction: {prediction_set.shape}')
-print(prediction_set)
-
-for position in range(chunk_size):
-    context = context_set[:position+1]
-    prediction = prediction_set[position]
-    print(f'When context is {context.tolist()} the prediction: {prediction}')
-
-
-
-print ('--- Chunks (for 4 batches of data with chunk size 10) ---')
-torch.manual_seed(1337)
-chunk_size = 10     # max context lengh for the prediction
-batch_size = 4      # how many independent chunks will be processed in parallel
-
-# generate a small batch of data of contexts and predictions
+# data loading
 def get_batches(mode: str):
-    if mode == 'train':
-        data = training_data
-    else:
-        data = validation_data
-    
-    ix = torch.randint(len(data) - chunk_size, (batch_size,))
-    context_set = torch.stack([data[i: i+chunk_size] for i in ix])
-    prediction_set = torch.stack([data[i+1: i+chunk_size+1] for i in ix])
+    data = training_data if mode == 'train' else validation_data
+    data_slices = torch.randint(len(data) - block_size, (batch_size,))
+
+    context_set = torch.stack([data[i: i + block_size] for i in data_slices])
+    prediction_set = torch.stack([data[i + 1: i + block_size + 1] for i in data_slices])
+    context_set, prediction_set = context_set.to(device), prediction_set.to(device)
+
     return context_set, prediction_set
-
-
-training_contexts, training_predictions = get_batches('train')
-print(f'training contexts: {training_contexts.shape}')
-print(training_contexts)
-print(f'training predictions: {training_predictions.shape}')
-print(training_predictions)
-
-
-
-print('--- Proceed trainig data ---')
-for batch in range(batch_size):
-    for position in range(chunk_size):
-        context = training_contexts[batch, :position+1]
-        prediction = training_predictions[batch, position]
-        print(f'When context is {context.tolist()} the prediction: {prediction}')
 
 
 
 # Enable Bigram LLM
-torch.manual_seed(1337)
-
 class BigramLLM(nn.Module):
+
     def __init__(self, vocab_size) -> None:
         super().__init__()
-        # each token directly reads off the logits for the next token from a lookup table
+        # each token directly reads off the prediction for the next token from a lookup table
         self.token_embedding_table = nn.Embedding(vocab_size, vocab_size)
 
-    def forward(self, idx, predictions=None):
-        # idx and predictions are both (Batch,Time) tensor of integers
-        llm_predictions = self.token_embedding_table(idx)    # (Batch,Time,Channel)
+    def forward(self, data_slice, predictions=None):
+        # data_slice and predictions are both (Batch,Time) tensor of integers
+        llm_predictions = self.token_embedding_table(data_slice)            # (Batch,Time,Channel)
         if predictions is None:
             loss = None
         else:
@@ -122,58 +93,65 @@ class BigramLLM(nn.Module):
             loss = F.cross_entropy(llm_predictions, predictions)
         return llm_predictions, loss
 
-    def generate(self, idx, max_new_tokens):
-        # idx is is (Batch,Time) array of indices in the current context
+    def generate(self, data_slice, max_new_tokens):
+        # data_slice is (Batch,Time) array of indices in the current context
         for _ in range(max_new_tokens):
             # get predictions
-            llm_predictions, loss = self(idx)
+            llm_predictions, loss = self(data_slice)
             # focus only on the last timestamp
-            llm_predictions = llm_predictions[:, -1, :]     # becomes (Batch,Channel)
+            llm_predictions = llm_predictions[:, -1, :]                     # becomes (Batch,Channel)
             # apply softmax to get probabilities
-            probs = F.softmax(llm_predictions, dim=-1)      # (Batch,Channel)
+            probs = F.softmax(llm_predictions, dim = -1)                    # (Batch,Channel)
             # sample from the distribution
-            idx_next = torch.multinomial(probs, num_samples=1)  # (Batch, 1)
+            data_slice_next = torch.multinomial(probs, num_samples = 1)     # (Batch, 1)
             # append sample index to the running sequence
-            idx = torch.cat((idx, idx_next), dim=1)         # (Batch,Time+1)
-        return idx
+            data_slice = torch.cat((data_slice, data_slice_next), dim=1)    # (Batch,Time+1)
+        return data_slice
 
 
 llm = BigramLLM(vocab_size)
-llm_predictions, loss = llm(training_contexts, training_predictions)
-print(llm_predictions.shape)
-print(loss)
+model = llm.to(device)
 
-print('--- Work with BigramLLM (500 tokens, 1 optimization run) ---')
-print(decode(
-        llm.generate(
-            idx = torch.zeros((1,1), dtype=torch.long),
-            max_new_tokens=500
-            )[0].tolist()
-        )
-    )
+
+
+@torch.no_grad()
+def estimate_loss():
+    out = {}
+    llm.eval()
+
+    for mode in ('train', 'validate'):
+        losses = torch.zeros(eval_iters)
+        for k in range(eval_iters):
+            contexts, predictions = get_batches(mode)
+            logits, loss = llm(contexts, predictions)
+            losses[k] = loss.item()
+        out[mode] = losses.mean()
+
+    llm.train()
+    return out
+
 
 
 # create a PyTorch optimizer
-print('--- optimize the loss ---')
-print('--- Work with BigramLLM (500 tokens, 10.000 optimization runs) ---')
-optimizer = torch.optim.AdamW(llm.parameters(), lr=0.001)
+optimizer = torch.optim.AdamW(llm.parameters(), lr = learning_rate)
 
-batch_size = 32
-for steps in range(10000):
+for iter in range(max_iters):
+    # every once in a while, evaluate the loss on training and validation sets
+    if iter % eval_interval == 0:
+        losses = estimate_loss()
+        print(f'Step {iter}: training loss {losses['train']:.4f}, validation loss {losses['validate']:.4f}')
+    
     # sample a batch of data
-    training_contexts, training_predictions = get_batches('train')
+    contexts_per_batch, predictions_per_batch = get_batches('train')
+
     # evaluate the loss
-    llm_predictions, loss = llm(training_contexts, training_predictions)
+    llm_predictions, loss = llm(contexts_per_batch, predictions_per_batch)
     optimizer.zero_grad(set_to_none=True)
     loss.backward()
-    optimizer.step
+    optimizer.step()
 
 
-print(loss.item())
-print(decode(
-        llm.generate(
-            idx = torch.zeros((1,1), dtype=torch.long),
-            max_new_tokens=500
-            )[0].tolist()
-        )
-    )
+
+# Generate from the LLM
+context = torch.zeros((1, 1), dtype=torch.long, device = device)
+print(decode(model.generate(context, max_new_tokens = 500)[0].tolist()))
