@@ -12,6 +12,7 @@ eval_interval = 300
 learning_rate = 0.01
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 eval_iters = 200
+number_of_embedded_dimensions = 32
 # ---
 
 
@@ -76,14 +77,20 @@ def get_batches(mode: str):
 # Enable Bigram LLM
 class BigramLLM(nn.Module):
 
-    def __init__(self, vocab_size) -> None:
+    def __init__(self) -> None:
         super().__init__()
         # each token directly reads off the prediction for the next token from a lookup table
-        self.token_embedding_table = nn.Embedding(vocab_size, vocab_size)
+        self.token_embedding_table = nn.Embedding(vocab_size, number_of_embedded_dimensions)
+        self.position_embedding_table = nn.Embedding(vocab_size, number_of_embedded_dimensions)
+        self.llm_head = nn.Linear(number_of_embedded_dimensions, vocab_size)
 
     def forward(self, data_slice, predictions=None):
+        Batch, Time = data_slice.shape
         # data_slice and predictions are both (Batch,Time) tensor of integers
-        llm_predictions = self.token_embedding_table(data_slice)            # (Batch,Time,Channel)
+        token_embedding = self.token_embedding_table(data_slice)                                    # (Batch,Time,Channel)
+        position_embedding = self.position_embedding_table(torch.arange(Time, device = device))     # (Time,Channel)
+        x = token_embedding + position_embedding                                                    # (Batch,Time,Channel)
+        llm_predictions = self.llm_head(x)                                                          # (Batch,Time,vocab_size)
         if predictions is None:
             loss = None
         else:
@@ -109,7 +116,7 @@ class BigramLLM(nn.Module):
         return data_slice
 
 
-llm = BigramLLM(vocab_size)
+llm = BigramLLM()
 model = llm.to(device)
 
 
@@ -123,7 +130,7 @@ def estimate_loss():
         losses = torch.zeros(eval_iters)
         for k in range(eval_iters):
             contexts, predictions = get_batches(mode)
-            logits, loss = llm(contexts, predictions)
+            llm_prediction, loss = llm(contexts, predictions)
             losses[k] = loss.item()
         out[mode] = losses.mean()
 
@@ -135,6 +142,7 @@ def estimate_loss():
 # create a PyTorch optimizer
 optimizer = torch.optim.AdamW(llm.parameters(), lr = learning_rate)
 
+# create trainig loop
 for iter in range(max_iters):
     # every once in a while, evaluate the loss on training and validation sets
     if iter % eval_interval == 0:
