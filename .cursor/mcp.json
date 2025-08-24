@@ -39,13 +39,6 @@
                 "--rm",
                 "hashicorp/terraform-mcp-server"
             ]
-        },
-        "SonarQube": {
-            "command": "docker run -i --rm -e SONARQUBE_TOKEN -e SONARQUBE_URL mcp/sonarqube",
-            "env": {
-                "SONARQUBE_TOKEN": "SONARQUBE_TOKEN",
-                "SONARQUBE_URL": "https://sonarcloud.io"
-            }
         }
     }
 }
