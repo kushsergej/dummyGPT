@@ -1,1 +1,14 @@
+# Add directories or file patterns to ignore during indexing (e.g. foo/ or *.csv)
+
 .venv/*
+.env
+.env.*
+.key
+.pem
+.pfx
+.crt
+.cer
+.p12
+.id_rsa
+.id_dsa
+.ssh/*
