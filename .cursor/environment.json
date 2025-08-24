@@ -1,0 +1,10 @@
+{
+    "snapshot": "kushsergej_background_agent",
+    "install": "npm install",
+    "terminals": [
+        {
+            "name": "Install az cli",
+            "command": "apt-get update && apt-get install azure-cli && az version"
+        }
+    ]
+}

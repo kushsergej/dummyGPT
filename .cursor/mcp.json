@@ -1,0 +1,51 @@
+{
+    "mcpServers": {
+        "playwright": {
+            "command": "npx",
+            "args": [
+                "-y",
+                "@executeautomation/playwright-mcp-server"
+            ]
+        },
+        "context7": {
+            "url": "https://mcp.context7.com/mcp"
+        },
+        "github": {
+            "command": "docker run -i --rm -e GITHUB_PERSONAL_ACCESS_TOKEN ghcr.io/github/github-mcp-server",
+            "env": {
+                "GITHUB_PERSONAL_ACCESS_TOKEN": "GITHUB_PERSONAL_ACCESS_TOKEN"
+            }
+        },
+        "gitlab": {
+            "command": "docker run -i --rm -e GITLAB_PERSONAL_ACCESS_TOKEN -e GITLAB_API_URL mcp/gitlab",
+            "env": {
+                "GITLAB_PERSONAL_ACCESS_TOKEN": "GITLAB_PERSONAL_ACCESS_TOKEN",
+                "GITLAB_API_URL": "https://gitlab.com/api/v4"
+            }
+        },
+        "microsoft.docs.mcp": {
+            "command": "npx",
+            "args": [
+                "-y",
+                "mcp-remote",
+                "https://learn.microsoft.com/api/mcp"
+            ]
+        },
+        "terraform": {
+            "command": "docker",
+            "args": [
+                "run",
+                "-i",
+                "--rm",
+                "hashicorp/terraform-mcp-server"
+            ]
+        },
+        "SonarQube": {
+            "command": "docker run -i --rm -e SONARQUBE_TOKEN -e SONARQUBE_URL mcp/sonarqube",
+            "env": {
+                "SONARQUBE_TOKEN": "SONARQUBE_TOKEN",
+                "SONARQUBE_URL": "https://sonarcloud.io"
+            }
+        }
+    }
+}
