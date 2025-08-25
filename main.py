@@ -1,19 +1,32 @@
 # Analyze dataset for vocab_size
+from email import message
+
+
 with open('dataset.txt', 'r', encoding='utf-8') as file:
     text = file.read()
 
 chars = sorted(list(set(text)))
 vocab_size = len(chars)
-print(f'Total chars in dataset is {vocab_size}')
+print(f'Total chars in dataset is: {vocab_size}')
 
 
 # Implement encoder and decoder
-stoi = {}
+str_to_i = {}
+i_to_str = {}
 for i, ch in enumerate(chars):
-    stoi[ch] = i
-print(stoi)
+    str_to_i[ch] = i
+    i_to_str[i] = ch
 
-itos = {}
-for ch, i in enumerate(chars):
-    itos[ch] = i
-print(itos)
+def encode(message: str) -> list[int]:
+    result = []
+    for c in message:
+        result.append(str_to_i[c])
+    return result
+
+def decode(message: list[int]) -> str:
+    result = ''
+    for i in message:
+        result += i_to_str[i]
+    return result
+
+print(f'{decode(encode('Лев Толстой'))} <--> {encode('Лев Толстой')}')
