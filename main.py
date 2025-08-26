@@ -142,3 +142,24 @@ print(loss)
 # This line generates 100 new tokens from the model, starting with a single token (index 0).
 # The generated sequence (a tensor) is converted to a list of token indices, then decoded back to text.
 print(decode(m.generate(idx=torch.zeros((1, 1), dtype=torch.long), max_new_tokens=100)[0].tolist()))
+
+
+
+# Cretae a PyTorch optimizer
+optimizer = torch.optim.AdamW(m.parameters(), lr=0.001)
+
+batch_size = 32
+for steps in range(100000):
+    # Get a batch of training data: input tokens (xb) and target tokens (yb).
+    xb, yb = get_batch('train')
+    # Forward pass: compute model predictions (logits) and loss.
+    logits, loss = m(xb, yb)
+    # Zero out gradients from the previous step to prevent accumulation.
+    optimizer.zero_grad(set_to_none=True)
+    # Backward pass: compute gradients of the loss with respect to model parameters.
+    loss.backward()
+    # Update model parameters using the optimizer.
+    optimizer.step()
+
+print(loss.item())
+print(decode(m.generate(idx=torch.zeros((1, 1), dtype=torch.long), max_new_tokens=500)[0].tolist()))
