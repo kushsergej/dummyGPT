@@ -101,26 +101,44 @@ class BigramLanguageModel(nn.Module):
         # This allows the model to directly output logits for the next token.
         self.token_embedding_table = nn.Embedding(vocab_size, vocab_size)
     
-    def forward(self, idx, targets):
+    def forward(self, idx, targets=None):
         # idx: input tensor of shape (B, T), where B is batch size and T is sequence length.
         # targets: tensor of the same shape, containing the expected next tokens.
         # The embedding table returns logits for each position in the input.
         # Output shape: (B, T, vocab_size)
         logits = self.token_embedding_table(idx)
-        B, T, C = logits.shape
-
-        # Reshape logits and targets to be 2D tensors for cross-entropy loss calculation.
-        # logits: (B, T, C) -> (B*T, C), targets: (B, T) -> (B*T)
-        logits = logits.view(B*T, C)
-        targets = targets.view(B*T)
-        # Compute the cross-entropy loss between the predicted logits and the actual targets.
-        loss = F.cross_entropy(logits, targets)
-
+        if targets is None:
+            loss = None
+        else:
+            B, T, C = logits.shape
+            # Reshape logits and targets to be 2D tensors for cross-entropy loss calculation.
+            # logits: (B, T, C) -> (B*T, C), targets: (B, T) -> (B*T)
+            logits = logits.view(B*T, C)
+            targets = targets.view(B*T)
+            # Compute the cross-entropy loss between the predicted logits and the actual targets.
+            loss = F.cross_entropy(logits, targets)
         return logits, loss
+
+    def generate(self, idx, max_new_tokens):
+        for _ in range(max_new_tokens):
+            # Get the model predictions (logits) for the current input sequence.
+            logits, loss = self(idx)
+            # Only use the last token in the sequence for prediction.
+            logits = logits[:, -1, :]    # Focus on the last time step's logits for each batch
+            # Convert logits to probabilities using softmax.
+            probs = F.softmax(logits, dim=-1)
+            # Sample the next token from the probability distribution.
+            idx_next = torch.multinomial(probs, num_samples=1)
+            # Append the sampled token to the input sequence.
+            idx = torch.cat((idx, idx_next), dim=1)
+        return idx
 
 # Instantiate the model with the vocabulary size.
 m = BigramLanguageModel(vocab_size)
 logits, loss = m(xb, yb)
-
 print(logits.shape)
 print(loss)
+
+# This line generates 100 new tokens from the model, starting with a single token (index 0).
+# The generated sequence (a tensor) is converted to a list of token indices, then decoded back to text.
+print(decode(m.generate(idx=torch.zeros((1, 1), dtype=torch.long), max_new_tokens=100)[0].tolist()))
