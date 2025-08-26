@@ -1,4 +1,9 @@
+from turtle import forward
+from sympy import Idx
 import torch
+from torch._functorch.vmap import out_dims_t
+import torch.nn as nn
+from torch.nn import functional as F
 
 
 
@@ -76,9 +81,46 @@ print(yb)
 
 print('---')
 
-for batch in range(batch_size):
-    print(f'Batch {batch}')
-    for ch in range(block_size):
-        context = xb[batch, :ch+1]
-        target = yb[batch, ch]
+for B in range(batch_size):
+    print(f'Batch {B}')
+    for T in range(block_size):
+        context = xb[B, :T+1]
+        target = yb[B, T]
         print(f'When input is {context.tolist()} the target is {target}')
+
+print('---')
+
+
+
+# The BigramLanguageModel is a simple neural network for language modeling (subclass of nn.Module)
+# It predicts the next token in a sequence based only on the current token (bigram model).
+class BigramLanguageModel(nn.Module):
+    def __init__(self, vocab_size) -> None:
+        super().__init__()
+        # The embedding table maps each token to a vector of size vocab_size.
+        # This allows the model to directly output logits for the next token.
+        self.token_embedding_table = nn.Embedding(vocab_size, vocab_size)
+    
+    def forward(self, idx, targets):
+        # idx: input tensor of shape (B, T), where B is batch size and T is sequence length.
+        # targets: tensor of the same shape, containing the expected next tokens.
+        # The embedding table returns logits for each position in the input.
+        # Output shape: (B, T, vocab_size)
+        logits = self.token_embedding_table(idx)
+        B, T, C = logits.shape
+
+        # Reshape logits and targets to be 2D tensors for cross-entropy loss calculation.
+        # logits: (B, T, C) -> (B*T, C), targets: (B, T) -> (B*T)
+        logits = logits.view(B*T, C)
+        targets = targets.view(B*T)
+        # Compute the cross-entropy loss between the predicted logits and the actual targets.
+        loss = F.cross_entropy(logits, targets)
+
+        return logits, loss
+
+# Instantiate the model with the vocabulary size.
+m = BigramLanguageModel(vocab_size)
+logits, loss = m(xb, yb)
+
+print(logits.shape)
+print(loss)
