@@ -7,6 +7,7 @@ from torch.nn import functional as F
 # variables
 batch_size = 32                  # how many independent sequences we gonna process in parallel
 block_size = 8                   # how many context characters we gonna use for prediction
+n_embd = 32
 max_iters = 3000
 eval_interval = 300
 eval_iters = 200
@@ -99,18 +100,27 @@ print('---')
 # The BigramLanguageModel is a simple neural network for language modeling (subclass of nn.Module)
 # It predicts the next token in a sequence based only on the current token (bigram model).
 class BigramLanguageModel(nn.Module):
-    def __init__(self, vocab_size):
+    def __init__(self):
         super().__init__()
-        # The embedding table maps each token to a vector of size vocab_size.
-        # This allows the model to directly output logits for the next token.
-        self.token_embedding_table = nn.Embedding(vocab_size, vocab_size)
+        # Embedding layer that maps each token (character) index to a vector of size n_embd.
+        self.token_embedding_table = nn.Embedding(vocab_size, n_embd)
+        # Embedding layer that maps each position in the input sequence (up to block_size) to a vector of size n_embd.
+        self.position_embedding_table = nn.Embedding(block_size, n_embd)
+        # Linear layer that projects the embedding vectors back to vocabulary size for prediction.
+        self.lm_head = nn.Linear(n_embd, vocab_size)
     
     def forward(self, idx, targets=None):
-        # idx: input tensor of shape (B, T), where B is batch size and T is sequence length.
-        # targets: tensor of the same shape, containing the expected next tokens.
-        # The embedding table returns logits for each position in the input.
-        # Output shape: (B, T, vocab_size)
-        logits = self.token_embedding_table(idx)
+        # B = batch size, T = sequence length (number of tokens in each input)
+        B, T = idx.shape
+        # Get token embeddings for each token in the input batch (shape: [B, T, n_embd])
+        token_embd = self.token_embedding_table(idx)
+        # Get position embeddings for each position in the sequence (shape: [T, n_embd])
+        pos_embd = self.position_embedding_table(torch.arange(T))
+        # Add token and position embeddings to inject order information (shape: [B, T, n_embd])
+        x = token_embd + pos_embd
+        # Project embeddings to vocabulary size to get logits for each token position (shape: [B, T, vocab_size])
+        logits = self.lm_head(x)
+
         if targets is None:
             loss = None
         else:
@@ -140,7 +150,7 @@ class BigramLanguageModel(nn.Module):
 
 
 # Instantiate the model with the vocabulary size.
-model = BigramLanguageModel(vocab_size)
+model = BigramLanguageModel()
 
 # Cretae a PyTorch optimizer
 optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate)
