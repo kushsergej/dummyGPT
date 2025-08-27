@@ -1,4 +1,3 @@
-from sympy.geometry.plane import x, y
 import torch
 import torch.nn as nn
 from torch.nn import functional as F
@@ -13,7 +12,6 @@ eval_interval = 300
 eval_iters = 200
 learning_rate = 0.01
 
-device = 'cuda' if torch.cuda.is_available() else 'cpu'
 torch.manual_seed(1337)
 print('---')
 
@@ -37,13 +35,13 @@ for i, ch in enumerate(chars):
     str_to_i[ch] = i
     i_to_str[i] = ch
 
-def encode(message: str) -> list[int]:
+def encode(message: str):
     result = []
     for c in message:
         result.append(str_to_i[c])
     return result
 
-def decode(message: list[int]) -> str:
+def decode(message: list[int]):
     result = ''
     for i in message:
         result += i_to_str[i]
@@ -66,7 +64,7 @@ print('---')
 
 
 # data loading
-def get_batch(split: str) -> (list[int], list[int]):
+def get_batch(split: str):
     if split == 'train':
         data = train_data
     else:
@@ -78,19 +76,19 @@ def get_batch(split: str) -> (list[int], list[int]):
     for i in ix:
         x.append(data[i:i+block_size])
         y.append(data[i+1:i+block_size+1])
-    return x.to(device), y.to(device)
+    return torch.stack(x), torch.stack(y)
 
 @torch.no_grad()
 def estimate_loss():
     out = {}
     model.eval()
     for split in ['train', 'val']:
-        losses = torch.zero(eval_iters)
+        losses = torch.zeros(eval_iters)
         for k in range(eval_iters):
             x, y = get_batch(split)
             logits, loss = model(x, y)
             losses[k] = loss.item()
-        out[split] = losses.min()
+        out[split] = losses.mean()
     model.train()
     return out
 
@@ -101,7 +99,7 @@ print('---')
 # The BigramLanguageModel is a simple neural network for language modeling (subclass of nn.Module)
 # It predicts the next token in a sequence based only on the current token (bigram model).
 class BigramLanguageModel(nn.Module):
-    def __init__(self, vocab_size) -> None:
+    def __init__(self, vocab_size):
         super().__init__()
         # The embedding table maps each token to a vector of size vocab_size.
         # This allows the model to directly output logits for the next token.
@@ -143,7 +141,6 @@ class BigramLanguageModel(nn.Module):
 
 # Instantiate the model with the vocabulary size.
 model = BigramLanguageModel(vocab_size)
-m = model.to(device)
 
 # Cretae a PyTorch optimizer
 optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate)
@@ -163,5 +160,5 @@ for iter in range(max_iters):
     optimizer.step()
 
 
-context = torch.zeros((1, 1), dtype=torch.long, device=device)
-print(decode(m.generate(context, max_new_tokens=500)[0].tolist()))
+context = torch.zeros((1, 1), dtype=torch.long)
+print(decode(model.generate(context, max_new_tokens=500)[0].tolist()))
