@@ -97,6 +97,28 @@ print('---')
 
 
 
+
+class Head(nn.Module):
+    def __init__(self, head_size):
+        super().__init__()
+        self.key = nn.Linear(n_embd, head_size, bias=False)
+        self.query = nn.Linear(n_embd, head_size, bias=False)
+        self.value = nn.Linear(n_embd, head_size, bias=False)
+        self.register_buffer('tril', torch.tril(torch.ones(block_size, block_size)))
+    
+    def forward(self, x):
+        B, T, C = x.shape
+        k = self.key(x)
+        q = self.query(x)
+        v = self.value(x)
+        wei = q @ k.transpose(-2, -1) * C**-0.5
+        wei = wei.masked_fill(self.tril[:T, :T] == 0, float('-inf'))
+        wei = F.softmax(wei, dim=-1)
+        out = wei @ v
+        return out
+
+
+
 # The BigramLanguageModel is a simple neural network for language modeling (subclass of nn.Module)
 # It predicts the next token in a sequence based only on the current token (bigram model).
 class BigramLanguageModel(nn.Module):
