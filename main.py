@@ -130,22 +130,34 @@ class Head(nn.Module):
 
 
 # The BigramLanguageModel is a simple neural network for language modeling (subclass of nn.Module)
+# The BigramLanguageModel class defines a simple transformer-based language model.
 class BigramLanguageModel(nn.Module):
     def __init__(self):
         super().__init__()
+        # Embedding layer for tokens: maps each token index to a vector of size n_embd
         self.token_embedding_table = nn.Embedding(vocab_size, n_embd)
+        # Embedding layer for positions: adds positional information to each token
         self.position_embedding_table = nn.Embedding(block_size, n_embd)
+        # Single self-attention head (Head class) to process the embeddings
         self.sa_head = Head(n_embd)
+        # Linear layer to project the output of the attention head to vocabulary logits
         self.lm_head = nn.Linear(n_embd, vocab_size)
     
     def forward(self, idx, targets=None):
+        # idx: (batch, time) tensor of token indices
         B, T = idx.shape
-        token_embd = self.token_embedding_table(idx)
-        pos_embd = self.position_embedding_table(torch.arange(T))
-        x = token_embd + pos_embd
-        x = self.sa_head(x)
-        logits = self.lm_head(x)
+        # Get token embeddings for each token in the input
+        token_embd = self.token_embedding_table(idx)  # (B, T, n_embd)
+        # Get position embeddings for each position in the sequence
+        pos_embd = self.position_embedding_table(torch.arange(T))  # (T, n_embd)
+        # Add token and position embeddings
+        x = token_embd + pos_embd  # (B, T, n_embd)
+        # Pass through the self-attention head
+        x = self.sa_head(x)  # (B, T, n_embd)
+        # Project to logits for each token in the vocabulary
+        logits = self.lm_head(x)  # (B, T, vocab_size)
 
+        # If targets are provided, compute the cross-entropy loss
         if targets is None:
             loss = None
         else:
@@ -156,12 +168,19 @@ class BigramLanguageModel(nn.Module):
         return logits, loss
 
     def generate(self, idx, max_new_tokens):
+        # Autoregressively generate new tokens, one at a time
         for _ in range(max_new_tokens):
+            # Only use the last block_size tokens as context
             idx_cond = idx[:, -block_size:]
+            # Get logits from the model
             logits, loss = self(idx_cond)
-            logits = logits[:, -1, :]    # Focus on the last time step's logits for each batch
+            # Focus on the logits for the last time step
+            logits = logits[:, -1, :]    # (batch, vocab_size)
+            # Convert logits to probabilities
             probs = F.softmax(logits, dim=-1)
+            # Sample the next token from the probability distribution
             idx_next = torch.multinomial(probs, num_samples=1)
+            # Append the new token to the sequence
             idx = torch.cat((idx, idx_next), dim=1)
         return idx
 
