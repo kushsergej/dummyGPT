@@ -8,10 +8,10 @@ from torch.nn import functional as F
 batch_size = 32                  # how many independent sequences we gonna process in parallel
 block_size = 8                   # how many context characters we gonna use for prediction
 n_embd = 32
-max_iters = 3000
-eval_interval = 300
+max_iters = 5000
+eval_interval = 500
 eval_iters = 200
-learning_rate = 0.01
+learning_rate = 0.001
 
 torch.manual_seed(1337)
 print('---')
@@ -98,74 +98,70 @@ print('---')
 
 
 
+# The Head class implements a single self-attention (sa) head, a core component of the transformer architecture.
 class Head(nn.Module):
     def __init__(self, head_size):
         super().__init__()
+        # Linear layers to project input embeddings into key, query, and value vectors.
+        # These are used to compute attention scores and weighted values.
         self.key = nn.Linear(n_embd, head_size, bias=False)
         self.query = nn.Linear(n_embd, head_size, bias=False)
         self.value = nn.Linear(n_embd, head_size, bias=False)
+        # Register a lower-triangular matrix (tril) as a buffer to enforce causality (no peeking ahead).
         self.register_buffer('tril', torch.tril(torch.ones(block_size, block_size)))
     
     def forward(self, x):
+        # x: input tensor of shape (Batch, Time, Channels)
         B, T, C = x.shape
-        k = self.key(x)
-        q = self.query(x)
-        v = self.value(x)
-        wei = q @ k.transpose(-2, -1) * C**-0.5
+        # Project input to key, query, and value vectors
+        k = self.key(x)   # (B, T, head_size)
+        q = self.query(x) # (B, T, head_size)
+        v = self.value(x) # (B, T, head_size)
+        # Compute attention scores ("affinities") between queries and keys
+        wei = q @ k.transpose(-2, -1) * C**-0.5  # (B, T, T)
+        # Mask out future positions to preserve autoregressive property
         wei = wei.masked_fill(self.tril[:T, :T] == 0, float('-inf'))
+        # Convert scores to probabilities
         wei = F.softmax(wei, dim=-1)
-        out = wei @ v
+        # Weighted sum of value vectors, according to attention weights
+        out = wei @ v  # (B, T, head_size)
         return out
 
 
 
 # The BigramLanguageModel is a simple neural network for language modeling (subclass of nn.Module)
-# It predicts the next token in a sequence based only on the current token (bigram model).
 class BigramLanguageModel(nn.Module):
     def __init__(self):
         super().__init__()
-        # Embedding layer that maps each token (character) index to a vector of size n_embd.
         self.token_embedding_table = nn.Embedding(vocab_size, n_embd)
-        # Embedding layer that maps each position in the input sequence (up to block_size) to a vector of size n_embd.
         self.position_embedding_table = nn.Embedding(block_size, n_embd)
-        # Linear layer that projects the embedding vectors back to vocabulary size for prediction.
+        self.sa_head = Head(n_embd)
         self.lm_head = nn.Linear(n_embd, vocab_size)
     
     def forward(self, idx, targets=None):
-        # B = batch size, T = sequence length (number of tokens in each input)
         B, T = idx.shape
-        # Get token embeddings for each token in the input batch (shape: [B, T, n_embd])
         token_embd = self.token_embedding_table(idx)
-        # Get position embeddings for each position in the sequence (shape: [T, n_embd])
         pos_embd = self.position_embedding_table(torch.arange(T))
-        # Add token and position embeddings to inject order information (shape: [B, T, n_embd])
         x = token_embd + pos_embd
-        # Project embeddings to vocabulary size to get logits for each token position (shape: [B, T, vocab_size])
+        x = self.sa_head(x)
         logits = self.lm_head(x)
 
         if targets is None:
             loss = None
         else:
             B, T, C = logits.shape
-            # Reshape logits and targets to be 2D tensors for cross-entropy loss calculation.
-            # logits: (B, T, C) -> (B*T, C), targets: (B, T) -> (B*T)
             logits = logits.view(B*T, C)
             targets = targets.view(B*T)
-            # Compute the cross-entropy loss between the predicted logits and the actual targets.
             loss = F.cross_entropy(logits, targets)
         return logits, loss
 
     def generate(self, idx, max_new_tokens):
         for _ in range(max_new_tokens):
-            # Get the model predictions (logits) for the current input sequence.
-            logits, loss = self(idx)
-            # Only use the last token in the sequence for prediction.
+            idx_cond = idx[:, -block_size:]
+            logits, loss = self(idx_cond)
             logits = logits[:, -1, :]    # Focus on the last time step's logits for each batch
-            # Convert logits to probabilities using softmax.
             probs = F.softmax(logits, dim=-1)
-            # Sample the next token from the probability distribution.
             idx_next = torch.multinomial(probs, num_samples=1)
-            # Append the sampled token to the input sequence.
             idx = torch.cat((idx, idx_next), dim=1)
         return idx
 
