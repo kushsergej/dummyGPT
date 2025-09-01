@@ -1,10 +1,8 @@
 #!/bin/bash
 
-pip install --upgrade pip
-pip install venv
-pip venv .venv
-source .venv/bin/activate
+python -m pip install --upgrade uv
+uv venv .venv --python 3.12
+source .venv/Scripts/activate
 
-# pip install -r requirements.txt
-
-# python3 main.py
+uv pip install -r requirements.txt
+uv run main.py
