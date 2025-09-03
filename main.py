@@ -98,63 +98,86 @@ print('---')
 
 
 
-# The Head class implements a single self-attention (sa) head, a core component of the transformer architecture.
 class Head(nn.Module):
     def __init__(self, head_size):
         super().__init__()
-        # Linear layers to project input embeddings into key, query, and value vectors.
-        # These are used to compute attention scores and weighted values.
         self.key = nn.Linear(n_embd, head_size, bias=False)
         self.query = nn.Linear(n_embd, head_size, bias=False)
         self.value = nn.Linear(n_embd, head_size, bias=False)
-        # Register a lower-triangular matrix (tril) as a buffer to enforce causality (no peeking ahead).
         self.register_buffer('tril', torch.tril(torch.ones(block_size, block_size)))
     
     def forward(self, x):
-        # x: input tensor of shape (Batch, Time, Channels)
         B, T, C = x.shape
-        # Project input to key, query, and value vectors
         k = self.key(x)   # (B, T, head_size)
         q = self.query(x) # (B, T, head_size)
         v = self.value(x) # (B, T, head_size)
-        # Compute attention scores ("affinities") between queries and keys
         wei = q @ k.transpose(-2, -1) * C**-0.5  # (B, T, T)
-        # Mask out future positions to preserve autoregressive property
         wei = wei.masked_fill(self.tril[:T, :T] == 0, float('-inf'))
-        # Convert scores to probabilities
         wei = F.softmax(wei, dim=-1)
-        # Weighted sum of value vectors, according to attention weights
         out = wei @ v  # (B, T, head_size)
         return out
 
 
 
-# The BigramLanguageModel is a simple neural network for language modeling (subclass of nn.Module)
-# The BigramLanguageModel class defines a simple transformer-based language model.
+class MultiHeadAttention(nn.Module):
+    def __init__(self, num_heads, head_size):
+        super().__init__()
+        self.heads = nn.ModuleList([Head(head_size) for _ in range(num_heads)])
+        self.proj = nn.Linear(n_embd, n_embd)
+    
+    def forward(self, x):
+        out = torch.cat([h(x) for h in self.heads], dim=-1)
+        out = self.proj(out)
+        return out
+
+
+
+class FeedForward(nn.Module):
+    def __init__(self, n_embd):
+        super().__init__()
+        self.net = nn.Sequential(
+            nn.Linear(n_embd, 4*n_embd),
+            nn.ReLU(),
+            nn.Linear(4*n_embd, n_embd),
+        )
+    
+    def forward(self, x):
+        return self.net(x)
+
+
+
+class Block(nn.Module):
+    def __init__(self, n_embd, n_head):
+        super().__init__()
+        head_size = n_embd // n_head
+        self.sa = MultiHeadAttention(n_head, head_size)
+        self.ffwd = FeedForward(n_embd)
+    
+    def forward(self, x):
+        x = x + self.sa(x)
+        x = x + self.ffwd(x)
+        return x
+
+
+
 class BigramLanguageModel(nn.Module):
     def __init__(self):
         super().__init__()
-        # Embedding layer for tokens: maps each token index to a vector of size n_embd
         self.token_embedding_table = nn.Embedding(vocab_size, n_embd)
-        # Embedding layer for positions: adds positional information to each token
         self.position_embedding_table = nn.Embedding(block_size, n_embd)
-        # Single self-attention head (Head class) to process the embeddings
-        self.sa_head = Head(n_embd)
-        # Linear layer to project the output of the attention head to vocabulary logits
+        self.blocks = nn.Sequential(
+            Block(n_embd, n_head=4),
+            Block(n_embd, n_head=4),
+            Block(n_embd, n_head=4),
+        )
         self.lm_head = nn.Linear(n_embd, vocab_size)
     
     def forward(self, idx, targets=None):
-        # idx: (batch, time) tensor of token indices
         B, T = idx.shape
-        # Get token embeddings for each token in the input
         token_embd = self.token_embedding_table(idx)  # (B, T, n_embd)
-        # Get position embeddings for each position in the sequence
         pos_embd = self.position_embedding_table(torch.arange(T))  # (T, n_embd)
-        # Add token and position embeddings
         x = token_embd + pos_embd  # (B, T, n_embd)
-        # Pass through the self-attention head
-        x = self.sa_head(x)  # (B, T, n_embd)
-        # Project to logits for each token in the vocabulary
+        x = self.blocks(x)
         logits = self.lm_head(x)  # (B, T, vocab_size)
 
         # If targets are provided, compute the cross-entropy loss
@@ -168,19 +191,12 @@ class BigramLanguageModel(nn.Module):
         return logits, loss
 
     def generate(self, idx, max_new_tokens):
-        # Autoregressively generate new tokens, one at a time
         for _ in range(max_new_tokens):
-            # Only use the last block_size tokens as context
             idx_cond = idx[:, -block_size:]
-            # Get logits from the model
             logits, loss = self(idx_cond)
-            # Focus on the logits for the last time step
             logits = logits[:, -1, :]    # (batch, vocab_size)
-            # Convert logits to probabilities
             probs = F.softmax(logits, dim=-1)
-            # Sample the next token from the probability distribution
             idx_next = torch.multinomial(probs, num_samples=1)
-            # Append the new token to the sequence
             idx = torch.cat((idx, idx_next), dim=1)
         return idx
 
