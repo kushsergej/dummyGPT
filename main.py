@@ -1,6 +1,9 @@
 import torch
 import torch.nn as nn
 from torch.nn import functional as F
+from dotenv import load_dotenv
+
+load_dotenv()  # load environment variables from .env
 
 
 
