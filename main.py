@@ -8,7 +8,7 @@ load_dotenv()  # load environment variables from .env
 
 
 # variables
-batch_size = 64                  # how many independent sequences we gonna process in parallel
+batch_size = 64                    # how many independent sequences we gonna process in parallel
 block_size = 256                   # how many context characters we gonna use for prediction
 n_embd = 384
 max_iters = 5000
